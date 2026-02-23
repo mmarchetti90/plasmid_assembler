@@ -243,9 +243,11 @@ class PLOC(DataBlock):
         # of rows is len(sequence)//64 + 1.
         numblocks=len(sequence)//64+1
         numcols=64
-        data=np.zeros((numblocks,numcols),dtype=np.uint16)
+        #data=np.zeros((numblocks,numcols),dtype=np.uint16)
+        data=np.zeros((numblocks,numcols)).astype(np.uint16)
 
-        data=np.fromfunction(lambda x,y:y*1024+x,(3,64),dtype=np.uint16) + 768
+        #data=np.fromfunction(lambda x,y:y*1024+x,(3,64),dtype=np.uint16) + 768
+        data=np.fromfunction(lambda x,y:y*1024+x,(3,64)).astype(np.uint16) + 768
         self.data=data.flatten()
 
     def _Data2(self,sequence):
@@ -254,7 +256,8 @@ class PLOC(DataBlock):
     def _Data3(self,sequence,samples=4):
         """Data3 returns peak locations with 4 samples (default)
         per nucleotide."""
-        data = np.array([ i*samples+(samples//2) for i in range(len(sequence)) ],dtype=np.uint16)
+        #data = np.array([ i*samples+(samples//2) for i in range(len(sequence)) ],dtype=np.uint16)
+        data = np.array([ i*samples+(samples//2) for i in range(len(sequence)) ]).astype(np.uint16)
         assert(len(data) == len(sequence))
         return data
 
