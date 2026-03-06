@@ -40,6 +40,10 @@ class split_fasta:
         
         for seq_name, seq in sequences.items():
             
+            if not len(seq):
+                
+                continue
+            
             fasta_out_txt = self.structure_fasta(seq, seq_name, 80)
             
             split_fasta_out_path = f'{output_dir}/{seq_name}.fasta'
@@ -90,10 +94,11 @@ class split_fasta:
 
 ### ------------------MAIN------------------ ###
 
-from sys import argv
+import gzip
 
 from os import chdir, getcwd, listdir, makedirs
 from os.path import isdir, exists
+from sys import argv
 
 ### Output dirs
 
@@ -168,6 +173,39 @@ else:
     
     barcode_subdirs = [f for f in listdir(plasmid_dir_path) if f.startswith('barcode') and isdir(f'{plasmid_dir_path}/{f}')]
     
+    # Remove barcode_subdirs with too few reads
+
+    reads_files_suffix = '.fastq.gz'
+
+    min_reads = 10
+    
+    barcodes_to_remove = []
+    
+    for b in barcode_subdirs:
+        
+        b_reads = 0
+        
+        try:
+        
+            fq_files = [f'{plasmid_dir_path}/{b}/{file}' for file in listdir(f'{plasmid_dir_path}/{b}') if file.endswith(reads_files_suffix)]
+            
+            for fq in fq_files:
+                
+                with gzip.open(fq, 'rt') as fq_open:
+    
+                    b_reads += (sum(1 for line in fq_open) // 4)
+            
+            if b_reads < min_reads:
+                
+                barcodes_to_remove.append(b)
+    
+        except:
+            
+            # Better to process a bad barcode than to exclude a good one
+            continue
+    
+    barcode_subdirs = [b for b in barcode_subdirs if b not in barcodes_to_remove]
+    
     # Find fasta file
     
     fasta_path = [f'{plasmid_dir_path}/{f}' for f in listdir(plasmid_dir_path) if f.endswith('fasta')]
@@ -192,11 +230,31 @@ else:
     
     for b in barcode_subdirs:
             
-        b_fasta_name = [k for k in split_fasta_paths.keys() if k.endswith(b)]
-            
+        b_fasta_name = [k for k in seq_sizes.keys() if f'_{b}_' in k]
+        
         if len(b_fasta_name):
+            
+            b_fasta_name = b_fasta_name[0]
+            
+            b_fasta_size = seq_sizes[b_fasta_name]
                 
-            continue
+            if b_fasta_size > 0:
+                
+                # Fasta exists and sequence is not empty
+                
+                continue
+            
+            else:
+                
+                # Sequence is empty, checking for expected size in fasta header
+                
+                try:
+                    
+                    seq_sizes[b_fasta_name] = int(b_fasta_name.split('_')[-1])
+                
+                except:
+                    
+                    seq_sizes[b_fasta_name] = 10000
             
         else:
                 
@@ -210,13 +268,17 @@ else:
     
     for b in barcode_subdirs:
             
-        b_fasta_name = [k for k in split_fasta_paths.keys() if k.endswith(b)]
+        b_fasta_name = [k for k in seq_sizes.keys() if f'_{b}_' in k]
             
         if len(b_fasta_name):
             
             b_fasta_name = b_fasta_name[0]
+
+            b_fasta_path = split_fasta_paths[b_fasta_name] if b_fasta_name in split_fasta_paths.keys() else ''
+            
+            b_fasta_size = seq_sizes[b_fasta_name] if b_fasta_name in seq_sizes.keys() else ''
                 
-            new_entry = '\t'.join([b, f'{plasmid_dir_path}/{b}', str(seq_sizes[b_fasta_name]), split_fasta_paths[b_fasta_name]])
+            new_entry = '\t'.join([b, f'{plasmid_dir_path}/{b}', str(b_fasta_size), b_fasta_path])
             
         else:
                 
