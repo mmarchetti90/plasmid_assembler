@@ -12,7 +12,7 @@ process PileupToAb1 {
   tuple val(sample_id), path(pileup)
 
   output:
-  tuple val(sample_id), path("${sample_id}_${pileup_type}.ab1"), emit: synthetic_ab1_file
+  tuple val(sample_id), path("${sample_id}_${pileup_type}*.ab1"), emit: synthetic_ab1_file
   
   """
   python ${abiwriter_script} \

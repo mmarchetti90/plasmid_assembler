@@ -243,11 +243,11 @@ class PLOC(DataBlock):
         # of rows is len(sequence)//64 + 1.
         numblocks=len(sequence)//64+1
         numcols=64
-        #data=np.zeros((numblocks,numcols),dtype=np.uint16)
-        data=np.zeros((numblocks,numcols)).astype(np.uint16)
+        data=np.zeros((numblocks,numcols),dtype=np.uint16)
+        #data=np.zeros((numblocks,numcols)).astype(np.uint16)
 
-        #data=np.fromfunction(lambda x,y:y*1024+x,(3,64),dtype=np.uint16) + 768
-        data=np.fromfunction(lambda x,y:y*1024+x,(3,64)).astype(np.uint16) + 768
+        data=np.fromfunction(lambda x,y:y*1024+x,(3,64),dtype=np.uint16) + 768
+        #data=np.fromfunction(lambda x,y:y*1024+x,(3,64)).astype(np.uint16) + 768
         self.data=data.flatten()
 
     def _Data2(self,sequence):
@@ -256,8 +256,8 @@ class PLOC(DataBlock):
     def _Data3(self,sequence,samples=4):
         """Data3 returns peak locations with 4 samples (default)
         per nucleotide."""
-        #data = np.array([ i*samples+(samples//2) for i in range(len(sequence)) ],dtype=np.uint16)
-        data = np.array([ i*samples+(samples//2) for i in range(len(sequence)) ]).astype(np.uint16)
+        data = np.array([ i*samples+(samples//2) for i in range(len(sequence)) ],dtype=np.uint16)
+        #data = np.array([ i*samples+(samples//2) for i in range(len(sequence)) ]).astype(np.uint16)
         assert(len(data) == len(sequence))
         return data
 
@@ -372,7 +372,7 @@ class FWO(DirectoryEntry):
 
     def __getitem__(self,key):
         return self.channel_mapping[key]
-    
+
 class Trace:
     """
     Trace represents a single ABI file trace which stores sequence and quality data. The object's
@@ -382,7 +382,7 @@ class Trace:
     One could use the Trace object like this:
     Trace(seqdata).write(output_file_name)
     """
-    def __init__(self,seqdata,baseorder='GATC',resolution=15,pileup=True):
+    def __init__(self,seqdata,baseorder='GATC',resolution=15,pileup=True,max_seq_size=-1,multi_trace_overlap=100):
         # Need to initialize the following data blocks:
         # name    number
         # b'DATA'    9
@@ -396,6 +396,23 @@ class Trace:
         # b'PCON'    2
         # b'PLOC'    1
 
+        # Create dict of file headers
+        self.abi_header = {}
+        
+        # Create the base order object
+        self.fwo=FWO(baseorder)
+        
+        # Create dict of directories
+        self.directory = {}
+        
+        # Init dict of data blocks for individual traces
+        self.data_blocks = {}
+        
+        # Init additional params
+        self.trace_coords = {}
+        self.trace_length = {}
+        self.consensus_sequence = {}
+
         # Transform the sequence data into a list of dictionaries
         # with the relative frequency of each nucleotide at each
         # position.
@@ -404,63 +421,84 @@ class Trace:
         else:
             self.base_frequencies=StringToBaseFrequencyList(seqdata)
         
-        # Create the file header.
-        self.abi_header = AbiHeader()
-
-        # Create the base order object.
-        self.fwo=FWO(baseorder)
-        self.data_blocks= [ PBAS(self.base_frequencies,1), 
-            PLOC(self.base_frequencies),
-            PBAS(self.base_frequencies,2), 
+        # Break sequence into chunks that can be managed by ab1 files
+        # The locations of the peaks in the trace are stored using unsigned
+        # shorts, so plasmid can't be longer than a certain size
+        # See PLOC._Data3
+        if max_seq_size == -1:
+            #max_seq_size = 16383 # (2**16 - 2) // 4
+            max_seq_size = 8192 # generally, this is what is considered max
+        for sub_start in range(0, len(self.base_frequencies), max_seq_size):
+            
+            # Init trace_id
+            trace_id = f'trace_{len(self.data_blocks)}'
+            
+            # Init header
+            self.abi_header[trace_id] = AbiHeader()
+            
+            # Subset self.base_frequencies
+            overlap = 0 if sub_start == 0 else abs(multi_trace_overlap)
+            sub_stop = min(sub_start + max_seq_size, len(self.base_frequencies))
+            sub_start -= overlap
+            bf_sub = self.base_frequencies[sub_start : sub_stop]
+            self.trace_coords[trace_id] = (sub_start, sub_stop)
+        
+            # Add PBAS and PLOC data blocks
+            self.data_blocks[trace_id] = [
+                PBAS(bf_sub,1), 
+                PLOC(bf_sub),
+                PBAS(bf_sub,2), 
             ]
-        # Store the trace length which is the length of the PBAS data.
-        self.trace_length = len(self.data_blocks[0].data)
-        # Store the consensus sequence.
-        self.consensus_sequence=self.data_blocks[0].data
-        # Create the DATA and PCON blocks.
-        for base in baseorder:
-            self.data_blocks.append(DATA(self.fwo[base],GenerateFakeIntensities(self.base_frequencies,base)))
-        self.data_blocks.append(PCON(GenerateFakeQualities(self.base_frequencies),1))
-        self.data_blocks.append(PCON(GenerateFakeQualities(self.base_frequencies),2))
+            # Store the trace length which is the length of the PBAS data
+            self.trace_length[trace_id] = len(self.data_blocks[trace_id][0].data)
+            # Store the consensus sequence
+            self.consensus_sequence[trace_id] = self.data_blocks[trace_id][0].data
+            # Create the DATA and PCON blocks
+            for base in baseorder:
+                self.data_blocks[trace_id].append(DATA(self.fwo[base],GenerateFakeIntensities(bf_sub,base)))
+            self.data_blocks[trace_id].append(PCON(GenerateFakeQualities(bf_sub),1))
+            self.data_blocks[trace_id].append(PCON(GenerateFakeQualities(bf_sub),2))
 
-        # Initialize the directory with the directory entries that 
-        # store their data in-line (rather than point to a data block).
-        self.directory = [ self.fwo, ]
+            # Initialize the directory with the directory entries that 
+            # store their data in-line (rather than point to a data block).
+            self.directory[trace_id] = [ self.fwo, ]
 
-        # Calculate position of each data block in file starting 
-        # location of first data block - first data written at 
-        # offset 128 due to unused bytes following header.
-        position = 128
+            # Calculate position of each data block in file starting 
+            # location of first data block - first data written at 
+            # offset 128 due to unused bytes following header.
+            position = 128
 
-        # For each data block ...
-        for block in self.data_blocks:
-            # ... record block's location...
-            block.set_offset(position)
-            # ... and calculate position of subsequent block.
-            position+=block.dir_entry.datasize
-            # Store data block's directory entry in directory.
-            self.directory.append(block.dir_entry)
-        # Record the location of the directory (which follows all the data blocks).
-        self.abi_header.directory_location=position
-        # Record the number of directory entries.
-        self.abi_header.num_entries = len(self.directory)
+            # For each data block ...
+            for block in self.data_blocks[trace_id]:
+                # ... record block's location...
+                block.set_offset(position)
+                # ... and calculate position of subsequent block.
+                position+=block.dir_entry.datasize
+                # Store data block's directory entry in directory.
+                self.directory[trace_id].append(block.dir_entry)
+            # Record the location of the directory (which follows all the data blocks).
+            self.abi_header[trace_id].directory_location=position
+            # Record the number of directory entries.
+            self.abi_header[trace_id].num_entries = len(self.directory[trace_id])
     
     def write(self,filename):
         """
-        Writes trace to a .ab1 file.
+        Writes traces to .ab1 files
         """
-        with open(filename,'wb') as ofs:
-            # Write the header.
-            self.abi_header.write(ofs)
-
-            # Write each block.
-            for block in self.data_blocks:
-                block.write(ofs)
-
-            # Sort and write the directory.
-            self.directory.sort()
-            for dir_entry in self.directory:
-                dir_entry.write(ofs)
+        for trace_id,(sub_start, sub_end) in self.trace_coords.items():
+            trace_filename = filename.replace('.ab1', f'_{sub_start}-{sub_end}bp.ab1')
+            with open(trace_filename,'wb') as ofs:
+                # Write the header.
+                self.abi_header[trace_id].write(ofs)
+    
+                # Write each block.
+                for block in self.data_blocks[trace_id]:
+                    block.write(ofs)
+    
+                # Sort and write the directory.
+                self.directory[trace_id].sort()
+                for dir_entry in self.directory[trace_id]:
+                    dir_entry.write(ofs)
 
 ### ------------------MAIN------------------ ###
 
