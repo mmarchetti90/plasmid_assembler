@@ -428,7 +428,8 @@ class Trace:
         if max_seq_size == -1:
             #max_seq_size = 16383 # (2**16 - 2) // 4
             max_seq_size = 8192 # generally, this is what is considered max
-        for sub_start in range(0, len(self.base_frequencies), max_seq_size):
+        sub_start = 0
+        while sub_start < len(self.base_frequencies):
             
             # Init trace_id
             trace_id = f'trace_{len(self.data_blocks)}'
@@ -437,9 +438,7 @@ class Trace:
             self.abi_header[trace_id] = AbiHeader()
             
             # Subset self.base_frequencies
-            overlap = 0 if sub_start == 0 else abs(multi_trace_overlap)
             sub_stop = min(sub_start + max_seq_size, len(self.base_frequencies))
-            sub_start -= overlap
             bf_sub = self.base_frequencies[sub_start : sub_stop]
             self.trace_coords[trace_id] = (sub_start, sub_stop)
         
@@ -480,6 +479,9 @@ class Trace:
             self.abi_header[trace_id].directory_location=position
             # Record the number of directory entries.
             self.abi_header[trace_id].num_entries = len(self.directory[trace_id])
+            
+            # Update sub_start
+            sub_start += (max_seq_size - abs(multi_trace_overlap))
     
     def write(self,filename):
         """
@@ -503,8 +505,6 @@ class Trace:
 ### ------------------MAIN------------------ ###
 
 import struct
-import string
-import itertools
 import numpy as np
 
 from sys import argv
