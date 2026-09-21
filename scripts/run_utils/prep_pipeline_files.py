@@ -281,8 +281,8 @@ else:
             new_entry = '\t'.join([b, f'{plasmid_dir_path}/{b}', str(b_fasta_size), b_fasta_path])
             
         else:
-                
-            new_entry = '\t'.join([b, f'{plasmid_dir_path}/{b}', '', ''])
+            
+            new_entry = '\t'.join([b, f'{plasmid_dir_path}/{b}', '', 'mock.fasta'])
             
         sample_manifest.append(new_entry)
     
